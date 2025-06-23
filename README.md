@@ -19,10 +19,10 @@ pip install hashcache
 ## Quick start
 
 ```python
-from hashcache import hash_cache
+from hashcache import hashcache
 import time
 
-@hash_cache("cache_dir")  # defaults to "/tmp/hashcache"
+@hashcache("cache_dir")  # defaults to "/tmp/hashcache"
 def f(value):
     time.sleep(1)
     return value
@@ -49,13 +49,13 @@ The Decorator extracts the following args from the function call
 By default, the cache key is generated using pickle, which does not include class method definitions. This will lead to stale cache results if the behavior of a class method changes.
 
 ```python
-from hashcache import hash_cache
+from hashcache import hashcache
 
 class MyClass:
     def f(self):
         return 1
 
-@hash_cache()
+@hashcache()
 def g(obj: MyClass):
     return obj.f()
 

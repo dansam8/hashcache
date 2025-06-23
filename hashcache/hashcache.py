@@ -1,14 +1,21 @@
 import os
 import hashlib
 import pickle
-import threading
+from uuid import uuid4
 from functools import wraps
 import logging
 
-logging.basicConfig(level=logging.WARNING, format='[%(levelname)s] %(message)s')
 
+def multiprocess_safe_write(data, path):
+    parent_dir = os.path.dirname(path)
+    temp_name = f"{uuid4()}.tmp"
+    with open(os.path.join(parent_dir, temp_name), "wb") as temp_file:
+        pickle.dump(data, temp_file)
 
-def hashcache(directory="/tmp/hashcache"):
+    os.rename(os.path.join(parent_dir, temp_name), path)
+        
+
+def hashcache(directory="/tmp/hashcache", use_cache_default=True, refresh_cache_default=False):
     """
     Important Note: 
     This decorator is not aware of the function code it wraps, if that code changes the cache must be refreshed 
@@ -16,7 +23,7 @@ def hashcache(directory="/tmp/hashcache"):
 
     Important Limitation: 
     Due to limitations in Python's pickle module, when a class instance is passed as an argument to a function 
-    decorated with @hash_cache, the function code of that class is not included in the cache key. As a result, 
+    decorated with @hashcache, the function code of that class is not included in the cache key. As a result, 
     if the class's methods are later modified, the cache will return outdated results based on the previous 
     definition.
 
@@ -37,13 +44,12 @@ def hashcache(directory="/tmp/hashcache"):
         raise TypeError("directory must be a string representing the path to the cache directory. Did you forget to call the decorator?")
     
     os.makedirs(directory, exist_ok=True)
-    lock = threading.Lock()
 
     def decorator(func):
         @wraps(func)
-        def wrapper(*args, use_cache=True, refresh_cache=False, cache_nonce=None, use_dill=False, **kwargs):
+        def wrapper(*args, use_cache=use_cache_default, refresh_cache=refresh_cache_default, cache_nonce=None, use_dill=False, **kwargs):
 
-            cache_keys = [func.__name__, args, kwargs, cache_nonce]
+            cache_keys = [func.__module__, func.__name__, args, kwargs, cache_nonce]
 
             if use_dill:
                 try:
@@ -54,24 +60,21 @@ def hashcache(directory="/tmp/hashcache"):
             else:
                 cache_keys = pickle.dumps(cache_keys)
 
-            hashed_cache_keys = hashlib.md5(cache_keys)
+            hashed_cache_keys = hashlib.sha256(cache_keys)
             filename = f"{hashed_cache_keys.hexdigest()}.pkl"
 
             cache_path = os.path.join(directory, filename)
 
             if use_cache and not refresh_cache and os.path.exists(cache_path):
-                with lock:
-                    try:
-                        with open(cache_path, "rb") as file:
-                            result = pickle.load(file)
-                            return result
-                    except (EOFError, pickle.PickleError):
-                        logging.warning(f"Cache file {cache_path} is corrupted or empty. Recomputing result.")
-
+                try:
+                    with open(cache_path, "rb") as file:
+                        result = pickle.load(file)
+                        return result
+                except (EOFError, pickle.PickleError):
+                    logging.getLogger(__name__).warning(f"Cache file {cache_path} is corrupted or empty. Recomputing result.")
+                    
             result = func(*args, **kwargs)
-            with lock:
-                with open(cache_path, "wb") as file:
-                    pickle.dump(result, file)
+            multiprocess_safe_write(result, cache_path)
 
             return result
         
