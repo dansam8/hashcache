@@ -1,20 +1,14 @@
 import os
 import hashlib
 import pickle
-from uuid import uuid4
+
 from functools import wraps
 import logging
 
+from .utils import multiprocess_safe_write
+from .pickle_substitute_handlers import PickleSubstituteHandler
 
-def multiprocess_safe_write(data, path):
-    parent_dir = os.path.dirname(path)
-    temp_name = f"{uuid4()}.tmp"
-    with open(os.path.join(parent_dir, temp_name), "wb") as temp_file:
-        pickle.dump(data, temp_file)
-
-    os.rename(os.path.join(parent_dir, temp_name), path)
         
-
 def hashcache(directory="/tmp/hashcache", use_cache_default=True, refresh_cache_default=False):
     """
     Important Note: 
@@ -36,7 +30,7 @@ def hashcache(directory="/tmp/hashcache", use_cache_default=True, refresh_cache_
     - cache_nonce: Any, default=None. Unique identifier to create distinct 
       cache entries for identical arguments. Useful for non-deterministic 
       functions, generating multiple results for the same inputs.
-    - use_dill: bool, default=False. If True, the cache_keys will be generated using dill instead of pickle to
+    - use_dill_for_keys: bool, default=False. If True, the cache_keys will be generated using dill instead of pickle to
       solve the limitation mentioned above. However Dill is much slower than pickle.
     """
 
@@ -47,20 +41,12 @@ def hashcache(directory="/tmp/hashcache", use_cache_default=True, refresh_cache_
 
     def decorator(func):
         @wraps(func)
-        def wrapper(*args, use_cache=use_cache_default, refresh_cache=refresh_cache_default, cache_nonce=None, use_dill=False, **kwargs):
+        def wrapper(*args, use_cache=use_cache_default, refresh_cache=refresh_cache_default, cache_nonce=None, use_dill_for_keys=False, **kwargs):
 
             cache_keys = [func.__module__, func.__name__, args, kwargs, cache_nonce]
+            pickled_cache_keys = PickleSubstituteHandler.dumps(cache_keys, use_dill=use_dill_for_keys)
 
-            if use_dill:
-                try:
-                    import dill
-                    cache_keys = dill.dumps(cache_keys)
-                except ImportError:
-                    raise ImportError("Dill is not installed. Please install it to use the use_dill option.")
-            else:
-                cache_keys = pickle.dumps(cache_keys)
-
-            hashed_cache_keys = hashlib.sha256(cache_keys)
+            hashed_cache_keys = hashlib.sha256(pickled_cache_keys)
             filename = f"{hashed_cache_keys.hexdigest()}.pkl"
 
             cache_path = os.path.join(directory, filename)
