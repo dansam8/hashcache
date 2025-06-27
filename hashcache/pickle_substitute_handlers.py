@@ -1,4 +1,3 @@
-import io
 import pickle
 from typing import Callable, Optional, Any
 
@@ -10,14 +9,59 @@ def vaex_df_handler(obj: Any) -> Any:
             if isinstance(obj, vaex.dataframe.DataFrame):
                 return obj.fingerprint()
         except ImportError:
-            raise ImportError("Object requiring picking appears to be a vaex DataFrame, but vaex is not installed. Is this handler broken")
+            raise ImportError("Object requiring pickling appears to be a vaex DataFrame, but vaex is not installed. "
+                              "Is this handler broken")
     
     return None
 
 
+def psycopg2_connection_handler(obj: Any) -> Any:
+    if hasattr(obj, '__class__') and hasattr(obj, 'dsn'):
+        try:
+            import psycopg2
+            if isinstance(obj, psycopg2.extensions.connection):
+                info = obj.info
+                return {
+                    'host': info.host,
+                    'port': info.port, 
+                    'dbname': info.dbname,
+                    'user': info.user,
+                    'status': obj.status
+                }               
+        except ImportError:
+            raise ImportError("Object requiring pickling appears to be a psycopg2 connection, but psycopg2 is "
+                              "not installed. Is this handler broken")
+    
+    return None
+
+
+def huggingface_model_handler(obj: Any) -> Any:
+    if not hasattr(obj, '__class__'):
+        return None
+        
+    module_name = obj.__class__.__module__
+    if not ('transformers' in module_name or 'sentence_transformers' in module_name):
+        return None
+    
+    model_info = {
+        'model_repr': repr(obj),  # Architecture + config info
+    }
+    
+    # Weight sample to distinguish fine-tunes  
+    if hasattr(obj, 'state_dict'):
+        state_dict = obj.state_dict()
+        param_names = list(state_dict.keys())
+        if param_names:
+            first_param = state_dict[param_names[0]].flatten()[0].item()
+            last_param = state_dict[param_names[-1]].flatten()[-1].item()
+            model_info['weight_sample'] = (first_param, last_param)
+            
+    return model_info
+
+
 class PickleSubstituteHandler:
     """
-    Creates deterministic identifiers for objects that otherwise cannot be deterministically serialized with pickle or dill.
+    Creates deterministic identifiers for objects that cannot be deterministically serialized with pickle or dill.
     """
 
     edge_case_handlers = []
@@ -28,7 +72,7 @@ class PickleSubstituteHandler:
     @classmethod
     def dumps(cls, obj: Any, use_dill: bool = False) -> bytes:
         """        
-        Serialize or create a deterministic identifier for objects that cannot be deterministically serialized.
+        Serialize or, create a deterministic identifier for objects that cannot be deterministically serialized.
         """
         
         def _preprocess_for_hashing(obj):
@@ -66,3 +110,5 @@ class PickleSubstituteHandler:
 
 
 PickleSubstituteHandler.register_pickle_substitute_handler(vaex_df_handler)
+PickleSubstituteHandler.register_pickle_substitute_handler(psycopg2_connection_handler)
+PickleSubstituteHandler.register_pickle_substitute_handler(huggingface_model_handler)

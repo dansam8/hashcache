@@ -6,11 +6,11 @@
 
 **The goal**
 
-Lightweight, easy to interpret (no complex eviction policies) and fast. Originally designed for caching stages of data processing pipelines, but can be used for any function 👀.
+Lightweight, minimalist, easy to interpret (no complex eviction policies) and fast. Originally designed for caching stages of data processing pipelines, but can be used for any function 👀.
 
 ---
 
-## 🔧 Installation
+## Installation
 
 ```bash
 pip install hashcache
@@ -22,7 +22,7 @@ pip install hashcache
 from hashcache import hashcache
 import time
 
-@hashcache("cache_dir")  # defaults to "/tmp/hashcache"
+@hashcache()
 def f(value):
     time.sleep(1)
     return value
@@ -32,17 +32,27 @@ print(f(1))  # Second call returns instantly from cache
 print(f(1, use_cache=False))  # Bypass cache, takes 1s again
 ```
 
+### Clearing the cache
+
+The intention of this library is minimalism and simplicity, so there is no built-in cache management. The cache should be cleared periodically and after potentially breaking changes to the code
+
+```bash
+rm -r _hashcache_dir
+```
+
+
 ## Cache Control Arguments
 
 The Decorator extracts the following args from the function call
     (they will not be passed onwards to the function):
 
-| Argument      | Type | Default | Description                                                                             |
-|---------------|------|---------|-----------------------------------------------------------------------------------------|
-| use_cache     | bool | True    | Skip or use the cache                                                                   |
-| refresh_cache | bool | False   | Force re-computation and overwrite cache                                                |
-| cache_nonce   | Any  | None    | Used to get multiple results from a non-deterministic function with the same arguments. |
-| use_dill      | bool | False   | Use `dill` for serialization instead of `pickle`.                                       |
+| Argument          | Type | Default | Description                                                                             |
+|-------------------|------|---------|-----------------------------------------------------------------------------------------|
+| use_cache         | bool | True    | Skip or use the cache                                                                   |
+| refresh_cache     | bool | False   | Force re-computation and overwrite cache                                                |
+| cache_nonce       | Any  | None    | Used to get multiple results from a non-deterministic function with the same arguments. |
+| use_dill_for_keys | bool | False   | Use `dill` for serialization instead of `pickle`.                                       |
+
 
 ## Limitation (Important!)
 
@@ -52,26 +62,26 @@ By default, the cache key is generated using pickle, which does not include clas
 from hashcache import hashcache
 
 class MyClass:
-    def f(self):
-        return 1
+    def method(self):
+        return "original result"
 
 @hashcache()
-def g(obj: MyClass):
-    return obj.f()
+def function_with_cache(obj: MyClass):
+    return obj.method()
 
-# Returns 1
-print(g(MyClass())) 
+# Returns original result
+print(function_with_cache(MyClass())) 
 
 # Redefine method after caching
-def f(self):
-    return 2
+def method(self):
+    return "updated result"
 
-MyClass.f = f
+MyClass.method = method
 
-# Still returns 1 (cached)
-print(g(MyClass())) 
+# Still returns "original result" (cached)
+print(function_with_cache(MyClass())) 
 
-# Returns 2, uses dill for accurate function serialization
+# Returns "updated result", uses dill for accurate function serialization
 # But much slower
-print(g(MyClass(), use_dill=True))
+print(function_with_cache(MyClass(), use_dill_for_keys=True))
 ```
